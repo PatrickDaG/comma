@@ -110,10 +110,17 @@ fn run_command_or_open_shell(
 fn main() -> ExitCode {
     let args = Opt::parse();
 
-    let mut cache = Cache::new();
-    if let Err(ref e) = cache {
-        eprintln!("failed to initialize cache, disabling related functionality: {e}");
-    }
+    let mut cache = if !args.ignore_cache {
+        match Cache::new() {
+            Err(e) => {
+                eprintln!("failed to initialize cache, disabling related functionality: {e}");
+                None
+            }
+            Ok(x) => Some(x),
+        }
+    } else {
+        None
+    };
 
     if args.update {
         eprintln!("\"comma --update\" has been deprecated. either obtain a prebuilt database from https://github.com/Mic92/nix-index-database or use \"nix run 'nixpkgs#nix-index' --extra-experimental-features 'nix-command flakes'\"");
@@ -121,7 +128,7 @@ fn main() -> ExitCode {
     }
 
     if args.empty_cache {
-        if let Ok(ref mut cache) = cache {
+        if let Some(ref mut cache) = cache {
             cache.empty();
         }
     }
@@ -139,19 +146,19 @@ fn main() -> ExitCode {
     let trail = &args.cmd[1..];
 
     if args.delete_entry {
-        if let Ok(ref mut cache) = cache {
+        if let Some(ref mut cache) = cache {
             cache.delete(command);
         }
     }
 
     let derivation = match cache {
-        Ok(mut cache) => cache.query(command).or_else(|| {
+        Some(mut cache) => cache.query(command).or_else(|| {
             index_database(command, &args.picker).map(|derivation| {
                 cache.update(command, &derivation);
                 derivation
             })
         }),
-        Err(_) => index_database(command, &args.picker),
+        None => index_database(command, &args.picker),
     };
 
     let derivation = match derivation {
@@ -249,6 +256,10 @@ struct Opt {
     /// Empty the cache
     #[clap(short, long = "empty-cache")]
     empty_cache: bool,
+
+    /// Ignore the cache completely
+    #[clap(long = "ignore-cache")]
+    ignore_cache: bool,
 
     /// Overwrite the cache entry for the specified command. This is achieved by first deleting it
     /// from the cache, then running comma as normal.
